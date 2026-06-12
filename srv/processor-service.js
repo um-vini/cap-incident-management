@@ -3,14 +3,25 @@ const cds = require('@sap/cds');
 class ProcessorService extends cds.ApplicationService {
   /** Registering custom event handlers */
   async init() {
-    this.before('UPDATE', 'Incidents', (req) => this.onUpdate(req));
+    this.before(['UPDATE', 'DELETE'], 'Incidents', (req) => this.onUpdate(req));
     this.before('CREATE', 'Incidents', (req) =>
       this.changeUrgencyDueToSubject(req.data),
     );
-    this.on('READ', 'Customers', (req) => this.onCustomersRead(req));
+
+    this.before(['CREATE', 'UPDATE'], 'Incidents', (req) =>
+      this.validateHighUrgency(req),
+    );
+
+    this.before(['CREATE', 'UPDATE'], 'Incidents', (req) =>
+      this.validateEmail(req),
+    );
+
+    this.on('READ', 'Customers', (req) => this.onCustomerRead(req));
     this.on(['CREATE', 'UPDATE'], 'Incidents', (req, next) =>
       this.onCustomerCache(req, next),
     );
+
+    // Remote service connections
     this.S4bupa = await cds.connect.to('API_BUSINESS_PARTNER');
     this.remoteService = await cds.connect.to('RemoteService');
 
@@ -25,7 +36,51 @@ class ProcessorService extends cds.ApplicationService {
   /** Custom Validation */
   async onUpdate(req) {
     let closed = await SELECT.one(1).from(req.subject).where`status.code = 'C'`;
-    if (closed) req.reject`Can't modify a closed incident!`;
+
+    if (closed) {
+      const action = req.event === 'UPDATE' ? 'update' : 'delete';
+      req.reject(400, `Cannot ${action} an incident with status 'Closed'.`);
+    }
+  }
+
+  async validateHighUrgency(req) {
+    const { title, urgency_code } = req.data;
+
+    if (urgency_code === 'H' && (!title || title.length < 10)) {
+      req.reject(
+        400,
+        'Title must be at least 10 characters long for high urgency incidents.',
+      );
+    }
+  }
+
+  async validateEmail(req) {
+    const { customer_ID } = req.data;
+    const { BusinessPartner } = this.remoteService.entities;
+
+    // console.log('BP ENTITY --->>>', JSON.stringify(BusinessPartner, null, 2));
+
+    const customer = await this.S4bupa.run(
+      SELECT.one(BusinessPartner, (bp) => {
+        bp('*');
+        bp.addresses((address) => {
+          address.email((emails) => {
+            emails.email;
+          });
+        });
+      }).where({ ID: customer_ID }),
+    );
+
+    // console.log(
+    //   'EMAIL RESULT --->>>>>',
+    //   customer.addresses[0]?.email[0]?.email,
+    // );
+
+    if (!customer?.addresses?.[0]?.email?.[0]?.email) {
+      req.reject(400, 'Customer must have a valid email address.');
+    }
+
+    console.log('COMPLETE STRUCTURE --->>>', JSON.stringify(customer, null, 2));
   }
 
   ///////////////// Remote Service Calls ////////////////
@@ -35,20 +90,23 @@ class ProcessorService extends cds.ApplicationService {
     const newCustomerId = req.data.customer_ID;
     const result = await next();
     const { BusinessPartner } = this.remoteService.entities;
+
     if (newCustomerId && newCustomerId !== '') {
       console.log('>> CREATE or UPDATE customer!');
 
       // Expands are required as the runtime does not support path expressions for remote services
       const customer = await this.S4bupa.run(
         SELECT.one(BusinessPartner, (bp) => {
-          bp('*');
+          bp.ID;
+          bp.firstName;
+          bp.lastName;
+          bp.name;
           bp.addresses((address) => {
-            address('email', 'phoneNumber');
             address.email((emails) => {
-              emails('email');
+              emails.email;
             });
             address.phoneNumber((phoneNumber) => {
-              phoneNumber('phone');
+              phoneNumber.phone;
             });
           });
         }).where({ ID: newCustomerId }),
@@ -65,17 +123,20 @@ class ProcessorService extends cds.ApplicationService {
     return result;
   }
 
-  async onCustomersRead(req) {
+  async onCustomerRead(req) {
     console.log('>> delegating to S4 service...', req.query);
     let { limit, one } = req.query.SELECT;
     if (!limit) limit = { rows: { val: 55 }, offset: { val: 0 } }; //default limit to 55 rows
 
     const { BusinessPartner } = this.remoteService.entities;
     const query = SELECT.from(BusinessPartner, (bp) => {
-      bp('*');
+      bp.ID;
+      bp.firstName;
+      bp.lastName;
+      bp.name;
       bp.addresses((address) => {
         address.email((emails) => {
-          emails('email');
+          emails.email;
         });
       });
     }).limit(limit);
@@ -86,6 +147,8 @@ class ProcessorService extends cds.ApplicationService {
     }
     // Expands are required as the runtime does not support path expressions for remote services
     let result = await this.S4bupa.run(query);
+
+    if (!Array.isArray(result)) result = result ? [result] : [];
 
     result = result.map((bp) => ({
       ID: bp.ID,
