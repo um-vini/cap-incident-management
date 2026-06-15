@@ -10,13 +10,8 @@ service ProcessorService {
             customer.ID || ' - ' || urgency.descr as customerUrgency : String,
         };
 
-
-    entity Customers as
-        projection on my.Customers {
-            *,
-            email @readonly,
-            phone @readonly
-        };
+    @readonly
+    entity Customers as projection on my.Customers;
 }
 
 annotate ProcessorService.Incidents with @odata.draft.enabled;

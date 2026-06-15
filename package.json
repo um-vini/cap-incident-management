@@ -17,7 +17,8 @@
   "scripts": {
     "test": "npx jest tests/test.js",
     "start": "cds-serve",
-    "watch-incidents": "cds watch --open ns.incidents/index.html?sap-ui-xx-viewCache=false --livereload false"
+    "watch-incidents": "cds watch --open ns.incidents/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-customers": "cds watch --open customers/index.html?sap-ui-xx-viewCache=false --livereload false"
   },
   "cds": {
     "requires": {
@@ -27,7 +28,8 @@
           "users": {
             "alice": {
               "roles": [
-                "support"
+                "support",
+                "admin"
               ]
             },
             "bob": {
@@ -49,6 +51,7 @@
     "app/*"
   ],
   "sapux": [
-    "app/incidents"
+    "app/incidents",
+    "app/customers"
   ]
 }

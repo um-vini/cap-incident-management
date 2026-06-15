@@ -26,11 +26,11 @@ entity Incidents : cuid, managed {
 * Customers entitled to create support Incidents.
 */
 entity Customers : managed {
-    key ID           : String;
-        firstName    : String;
-        lastName     : String;
+    key ID           : String     @Core.Computed;
+        firstName    : String @mandatory;
+        lastName     : String @mandatory;
         name         : String = trim(firstName || ' ' || lastName);
-        email        : EMailAddress;
+        email        : EMailAddress @mandatory;
         phone        : PhoneNumber;
         incidents    : Association to many Incidents
                            on incidents.customer = $self;

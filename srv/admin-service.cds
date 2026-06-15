@@ -7,4 +7,5 @@ service AdminService {
     entity Incidents as projection on my.Incidents;
 }
 
+annotate AdminService.Customers with @odata.draft.enabled;
 annotate AdminService with @(requires: 'admin');
